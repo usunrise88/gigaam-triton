@@ -122,8 +122,25 @@ def shape_args(
     return args
 
 
-def precision_flags(precision: str, strongly_typed: bool, sparsity: bool) -> list[str]:
+def precision_flags(precision: str, strongly_typed: bool, sparsity: bool,
+                    trt_major: int = 10, onnx_dtype: str | None = None) -> list[str]:
     flags: list[str] = []
+    if trt_major >= 11:
+        # TensorRT 11 dropped weakly typed networks: --fp16/--bf16 are gone and every
+        # network is strongly typed, i.e. the engine runs in the ONNX tensor types.
+        # The requested precision must therefore already be the export dtype
+        # (build.sh exports fp16 for GPU runtimes), otherwise the engine would
+        # silently come out in another precision than the one asked for.
+        if precision not in ("fp16", "fp32"):
+            raise SystemExit(f"--precision {precision} needs a {precision} ONNX export on TensorRT >= 11")
+        if onnx_dtype and onnx_dtype != precision:
+            raise SystemExit(
+                f"--precision {precision} but the ONNX was exported as {onnx_dtype}; on TensorRT >= 11 "
+                "the engine precision is the ONNX dtype. Re-export or change --precision."
+            )
+        if sparsity:
+            flags.append("--sparsity=enable")
+        return flags
     if precision == "fp16":
         flags.append("--fp16")
     elif precision == "bf16":
@@ -185,7 +202,9 @@ def main() -> int:
     bucket_list = bucket_mod.from_meta(meta, args.buckets)
     n_mels = int(meta["n_mels"])
 
-    flags = precision_flags(args.precision, args.strongly_typed, args.sparsity)
+    trt_major = int(trt_version().split(".")[0])
+    flags = precision_flags(args.precision, args.strongly_typed, args.sparsity,
+                            trt_major, meta.get("export_dtype"))
     flags += [
         f"--builderOptimizationLevel={args.builder_optimization_level}",
         f"--memPoolSize=workspace:{args.workspace_mib}",

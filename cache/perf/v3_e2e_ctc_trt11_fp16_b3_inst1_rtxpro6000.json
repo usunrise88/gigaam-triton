@@ -1,0 +1,237 @@
+{
+  "variant": "v3_e2e_ctc",
+  "runtime": "trt",
+  "export_dtype": "fp16",
+  "max_batch_size": 8,
+  "requested_outputs": [
+    "text"
+  ],
+  "gpu_before": {
+    "gpu_name": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+    "utilization_pct": 0,
+    "memory_used_mib": 53212,
+    "memory_total_mib": 97887,
+    "compute_apps": [
+      {
+        "pid": "1",
+        "process": "tritonserver",
+        "memory_mib": "1226"
+      }
+    ]
+  },
+  "gpu_after": {
+    "gpu_name": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+    "utilization_pct": 91,
+    "memory_used_mib": 53212,
+    "memory_total_mib": 97887,
+    "compute_apps": [
+      {
+        "pid": "1",
+        "process": "tritonserver",
+        "memory_mib": "1226"
+      }
+    ]
+  },
+  "gpu_shared_with": [],
+  "caveat": "Measured on the staging RTX PRO 5000 while a vLLM server held part of the card. Thresholds in spec §9.2 were written for the dedicated production RTX PRO 6000; read these as a lower bound.",
+  "cold_vs_warm": {
+    "channel_setup_ms": 8.495,
+    "note": "channel_setup_ms is the first inference on a fresh gRPC channel and includes connection setup; the per-bucket rows exclude it.",
+    "buckets": [
+      {
+        "model": "gigaam_v3_e2e_ctc_3s",
+        "first_request_ms": 6.793,
+        "warm_median_ms": 6.536,
+        "ratio": 1.04
+      }
+    ]
+  },
+  "matrix": [
+    {
+      "requests": 1287,
+      "errors": 0,
+      "error_samples": [],
+      "wall_s": 8.002,
+      "throughput_rps": 160.83,
+      "rtfx": 80.4,
+      "gpu_under_load": {
+        "gpu_name": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+        "utilization_pct": 20,
+        "memory_used_mib": 53212,
+        "memory_total_mib": 97887,
+        "compute_apps": [
+          {
+            "pid": "1",
+            "process": "tritonserver",
+            "memory_mib": "1226"
+          }
+        ]
+      },
+      "p50_ms": 6.158,
+      "p95_ms": 6.668,
+      "p99_ms": 6.83,
+      "min_ms": 5.806,
+      "max_ms": 7.081,
+      "mean_ms": 6.217,
+      "duration_s": 0.5,
+      "concurrency": 1,
+      "model": "gigaam_v3_e2e_ctc_3s",
+      "bucket_s": 3.0
+    },
+    {
+      "requests": 12029,
+      "errors": 0,
+      "error_samples": [],
+      "wall_s": 8.004,
+      "throughput_rps": 1502.85,
+      "rtfx": 751.4,
+      "gpu_under_load": {
+        "gpu_name": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+        "utilization_pct": 89,
+        "memory_used_mib": 53212,
+        "memory_total_mib": 97887,
+        "compute_apps": [
+          {
+            "pid": "1",
+            "process": "tritonserver",
+            "memory_mib": "1226"
+          }
+        ]
+      },
+      "p50_ms": 5.258,
+      "p95_ms": 6.249,
+      "p99_ms": 6.936,
+      "min_ms": 3.516,
+      "max_ms": 8.66,
+      "mean_ms": 5.32,
+      "duration_s": 0.5,
+      "concurrency": 8,
+      "model": "gigaam_v3_e2e_ctc_3s",
+      "bucket_s": 3.0
+    },
+    {
+      "requests": 18851,
+      "errors": 0,
+      "error_samples": [],
+      "wall_s": 8.02,
+      "throughput_rps": 2350.57,
+      "rtfx": 1175.3,
+      "gpu_under_load": {
+        "gpu_name": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+        "utilization_pct": 92,
+        "memory_used_mib": 53212,
+        "memory_total_mib": 97887,
+        "compute_apps": [
+          {
+            "pid": "1",
+            "process": "tritonserver",
+            "memory_mib": "1226"
+          }
+        ]
+      },
+      "p50_ms": 20.83,
+      "p95_ms": 23.74,
+      "p99_ms": 24.219,
+      "min_ms": 4.726,
+      "max_ms": 28.529,
+      "mean_ms": 21.21,
+      "duration_s": 0.5,
+      "concurrency": 50,
+      "model": "gigaam_v3_e2e_ctc_3s",
+      "bucket_s": 3.0
+    },
+    {
+      "requests": 1277,
+      "errors": 0,
+      "error_samples": [],
+      "wall_s": 8.006,
+      "throughput_rps": 159.5,
+      "rtfx": 478.5,
+      "gpu_under_load": {
+        "gpu_name": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+        "utilization_pct": 20,
+        "memory_used_mib": 53212,
+        "memory_total_mib": 97887,
+        "compute_apps": [
+          {
+            "pid": "1",
+            "process": "tritonserver",
+            "memory_mib": "1226"
+          }
+        ]
+      },
+      "p50_ms": 6.264,
+      "p95_ms": 6.668,
+      "p99_ms": 6.869,
+      "min_ms": 5.7,
+      "max_ms": 7.202,
+      "mean_ms": 6.269,
+      "duration_s": 3.0,
+      "concurrency": 1,
+      "model": "gigaam_v3_e2e_ctc_3s",
+      "bucket_s": 3.0
+    },
+    {
+      "requests": 12005,
+      "errors": 0,
+      "error_samples": [],
+      "wall_s": 8.004,
+      "throughput_rps": 1499.84,
+      "rtfx": 4499.5,
+      "gpu_under_load": {
+        "gpu_name": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+        "utilization_pct": 89,
+        "memory_used_mib": 53212,
+        "memory_total_mib": 97887,
+        "compute_apps": [
+          {
+            "pid": "1",
+            "process": "tritonserver",
+            "memory_mib": "1226"
+          }
+        ]
+      },
+      "p50_ms": 5.29,
+      "p95_ms": 6.338,
+      "p99_ms": 7.025,
+      "min_ms": 3.556,
+      "max_ms": 8.77,
+      "mean_ms": 5.331,
+      "duration_s": 3.0,
+      "concurrency": 8,
+      "model": "gigaam_v3_e2e_ctc_3s",
+      "bucket_s": 3.0
+    },
+    {
+      "requests": 18812,
+      "errors": 0,
+      "error_samples": [],
+      "wall_s": 8.021,
+      "throughput_rps": 2345.42,
+      "rtfx": 7036.3,
+      "gpu_under_load": {
+        "gpu_name": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+        "utilization_pct": 92,
+        "memory_used_mib": 53212,
+        "memory_total_mib": 97887,
+        "compute_apps": [
+          {
+            "pid": "1",
+            "process": "tritonserver",
+            "memory_mib": "1226"
+          }
+        ]
+      },
+      "p50_ms": 20.819,
+      "p95_ms": 23.841,
+      "p99_ms": 24.25,
+      "min_ms": 5.197,
+      "max_ms": 25.165,
+      "mean_ms": 21.261,
+      "duration_s": 3.0,
+      "concurrency": 50,
+      "model": "gigaam_v3_e2e_ctc_3s",
+      "bucket_s": 3.0
+    }
+  ]
+}
