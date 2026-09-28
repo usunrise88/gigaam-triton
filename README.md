@@ -1,166 +1,197 @@
 # gigaam-triton
 
-Triton Inference Server для русской ASR-модели **GigaAM v3** на Blackwell (SM120).
-Реализация спеки `gigaam-triton-spec.md`.
+**English** · [Русский](README.ru.md)
 
-| Документ | О чём |
+Serves the Russian speech recognition model [GigaAM v3](https://github.com/salute-developers/GigaAM)
+on NVIDIA Triton Inference Server, using TensorRT on Blackwell GPUs (SM120) and ONNX Runtime on CPU.
+
+- All four v3 variants: `v3_e2e_ctc`, `v3_e2e_rnnt`, `v3_ctc`, `v3_rnnt`.
+- Three runtimes: TensorRT, ONNX Runtime on GPU, and ONNX Runtime on CPU with dynamic int8.
+- Every variant and runtime has the same input: raw 16 kHz float32 samples. The output includes
+  text, tokens and per-token scores; CTC variants also return full log-probabilities, so clients
+  can run their own decoding.
+- The runtime image has no torch. Feature extraction is a numpy re-implementation that must
+  match torchaudio before the build can pass.
+- Bad input fails loudly. On int16-scaled audio the model itself silently returns an empty
+  string, so the server validates dtype and range and returns an explicit error instead.
+
+| Document | Contents |
 |---|---|
-| `INTEGRATION.md` | **контракт для подключения из стороннего проекта** |
-| `PREP.md` | что за машина, что нашлось в апстриме, все замеры и решения |
-| `gigaam-triton-spec.md` | исходная постановка задачи |
-| `CLAUDE.md` | краткая выжимка для тех, кто продолжит работу |
+| [`INTEGRATION.md`](INTEGRATION.md) | Client contract: tensors, ports, errors, latency figures (in Russian) |
+| [`PREP.md`](PREP.md) | Development log: environment, upstream findings, measurements, decisions (in Russian) |
+| [`gigaam-triton-spec.md`](gigaam-triton-spec.md) | Original design specification (in Russian) |
 
 ---
 
-## 1. Что нужно на хосте
+## Contents
 
-Всё тяжёлое живёт в контейнерах. На самой машине нужен минимум:
+1. [Host requirements](#1-host-requirements)
+2. [Quick start](#2-quick-start)
+3. [Build options](#3-build-options)
+4. [Verification and benchmarks](#4-verification-and-benchmarks)
+5. [CPU profile](#5-cpu-profile)
+6. [RNNT](#6-rnnt)
+7. [Evaluation](#7-evaluation)
+8. [Repository layout](#8-repository-layout)
+9. [Things to know up front](#9-things-to-know-up-front)
 
-| Требование | Проверка |
+---
+
+## 1. Host requirements
+
+Everything heavy runs in containers. The host needs only:
+
+| Requirement | Check |
 |---|---|
-| GPU NVIDIA + драйвер | `nvidia-smi` |
+| NVIDIA GPU + driver | `nvidia-smi` |
 | Docker ≥ 24 | `docker --version` |
 | NVIDIA Container Toolkit | `docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi` |
-| Python 3.8+ (только stdlib) | `python3 --version` |
-| ~60 ГБ свободного места | `df -h /` |
-| Доступ в интернет | образы NVIDIA NGC, PyPI, CDN с весами GigaAM |
+| Python 3.8+ (standard library only) | `python3 --version` |
+| ~60 GB of free disk space | `df -h /` |
+| Internet access | NVIDIA NGC images, PyPI, GigaAM weights CDN |
 
-**Никаких pip-зависимостей на хосте для сборки ставить не нужно** — `build.sh` и
-`scripts/detect_env.py` обходятся стандартной библиотекой. Отдельные зависимости
-нужны только для eval-модуля, см. §7.
+Building needs **no pip packages on the host**: `build.sh` and `scripts/detect_env.py` use only
+the standard library. The evaluation module is the one exception (see [§7](#7-evaluation)).
 
-Про место: базовый образ Triton ~31 ГБ, builder-образ поверх него ~44 ГБ,
-runtime ~35 ГБ (слои общие, так что фактически меньше), ONNX-экспорты ~2 ГБ,
-TRT-движки ~0.8 ГБ на вариант. Если места мало, `docker builder prune` обычно
-освобождает десятки гигабайт.
+Disk usage: the Triton base image is ~31 GB, the builder image ~44 GB and the runtime image
+~35 GB (they share layers, so the real total is smaller). ONNX exports take ~2 GB, and each
+variant's TensorRT engine takes ~0.8 GB. If space runs short, `docker builder prune` usually
+frees tens of gigabytes.
 
 ---
 
-## 2. Быстрый старт
+## 2. Quick start
 
 ```bash
-git clone <repo> && cd gigaam-triton
+git clone https://github.com/usunrise88/gigaam-triton.git && cd gigaam-triton
 ./build.sh --variant v3_e2e_ctc --runtime trt --precision fp16 \
            --buckets 2,5,10,20 --verify
 ```
 
-Первый прогон делает всё: находит подходящий базовый образ, собирает builder,
-проверяет фронтенд, качает веса (~1.7 ГБ, кэшируются в `~/.cache/gigaam`),
-экспортирует ONNX, собирает TensorRT-движок и собирает runtime-образ.
-С `--verify` в конце поднимает сервер и гоняет smoke-тест.
+The first run does everything:
 
-**Это занимает около часа**, из которых ~40 минут — сборка TRT-движка. Повторные
-запуски идемпотентны: ничего с валидным ключом кэша не пересобирается.
+1. picks a base image that works on this GPU;
+2. builds the builder image;
+3. checks the feature frontend against torchaudio;
+4. downloads the weights (~1.7 GB, cached in `~/.cache/gigaam`);
+5. exports ONNX and builds the TensorRT engine;
+6. builds the runtime image.
 
-Затем:
+With `--verify` it also starts the server and runs the smoke test.
+
+**Expect about an hour**, ~40 minutes of which is the TensorRT engine build. Re-runs are
+idempotent: nothing with a valid cache key is rebuilt.
+
+Then start the server:
 
 ```bash
 docker run -d --gpus all --name gigaam-triton \
   -p 18000:18000 -p 18001:18001 -p 18002:18002 \
   -v "$PWD/cache:/cache" \
   -e VARIANT=v3_e2e_ctc -e RUNTIME=trt -e PRECISION=fp16 \
-  -e BUCKETS=3 -e INSTANCES=1 \
   gigaam-triton:0.1
 
 curl -sf http://localhost:18000/v2/health/ready && echo ready
 ```
 
-Как этим пользоваться из своего кода — `INTEGRATION.md`.
+Ports 18000/18001/18002 are HTTP, gRPC and metrics. Client usage is described in
+[`INTEGRATION.md`](INTEGRATION.md).
+
+If the container is started with different `BUCKETS` or `PRECISION`, the entrypoint notices the
+engine mismatch and rebuilds the engine on startup. Budget time for that.
 
 ---
 
-## 3. Флаги `build.sh`
+## 3. Build options
 
-| Флаг | Значения | Дефолт |
+| Flag | Values | Default |
 |---|---|---|
-| `--variant` | `v3_e2e_ctc`, `v3_e2e_rnnt`, `v3_ctc`, `v3_rnnt`; можно списком через запятую | `v3_e2e_ctc` |
+| `--variant` | `v3_e2e_ctc`, `v3_e2e_rnnt`, `v3_ctc`, `v3_rnnt`; comma-separated list allowed | `v3_e2e_ctc` |
 | `--runtime` | `trt`, `onnx-gpu`, `onnx-cpu` | `trt` |
-| `--precision` | `fp16`, `bf16`, `fp32`, `int8` (только с `onnx-cpu`) | `fp16` для GPU, `int8` для CPU |
-| `--buckets` | границы в секундах через запятую, или `none` | `2,5,10,20` |
+| `--precision` | `fp16`, `bf16`, `fp32`, `int8` (`onnx-cpu` only) | `fp16` on GPU, `int8` on CPU |
+| `--buckets` | comma-separated duration bounds in seconds, or `none` | `2,5,10,20` |
 | `--max-batch-size` | | `8` |
-| `--instances` | инстансов энкодера на GPU | `2` |
-| `--cpu-instances` / `--intra-op-threads` | CPU-профиль | `6` / `4` |
-| `--image` / `--model-repo` / `--cache` | пути и тег | `gigaam-triton:0.1`, `./model_repo`, `./cache` |
-| `--skip-trt` | движок соберётся при первом старте контейнера | выкл. |
-| `--verify` | поднять сервер и прогнать smoke | выкл. |
-| `--force` | пересобрать всё, игнорируя кэш | выкл. |
-| `--pull` | разрешить тянуть кандидатные базовые образы (~30 ГБ каждый) | выкл. |
+| `--instances` | encoder instances per GPU | `2` |
+| `--cpu-instances` / `--intra-op-threads` | CPU profile | `6` / `4` |
+| `--image` / `--model-repo` / `--cache` | image tag and paths | `gigaam-triton:0.1`, `./model_repo`, `./cache` |
+| `--skip-trt` | build the engine on first container start instead | off |
+| `--verify` | start the server and run the smoke test | off |
+| `--force` | rebuild everything, ignoring the cache | off |
+| `--pull` | allow pulling candidate base images (~30 GB each) | off |
 
-### Что происходит по шагам
+### Build steps
 
-1. **Окружение.** `detect_env.py` читает `nvidia-smi`, перебирает кандидатные
-   образы Triton и для каждого **реально собирает пробный движок** под
-   обнаруженную compute capability. Первый прошедший записывается в
-   `cache/env.json`. Версия образа нигде не захардкожена: инструкция апстрима
-   предписывает TensorRT, который старше поддержки SM120, и на Blackwell либо
-   падает, либо тихо деградирует. При провале всех кандидатов скрипт падает со
-   списком проверенного и **не** откатывается на CPU молча.
+1. **Environment.** `detect_env.py` reads `nvidia-smi`, goes through candidate Triton images and,
+   for each one, **builds a real probe engine** for the detected compute capability. The first
+   image that passes is written to `cache/env.json`. No image version is hard-coded: upstream's
+   instructions pin a TensorRT release that predates SM120 support, and on Blackwell that either
+   crashes or silently falls back to slow JIT. If every candidate fails, the script stops with the
+   list of what it tried. It does **not** silently fall back to CPU.
+2. **Builder image:** torch, `gigaam` and the ONNX tooling. It is never shipped.
+3. **Log-mel gate.** The runtime has no torch, so the frontend is recomputed in numpy using a
+   filterbank exported from torchaudio. The gate compares both against a float64 reference, and
+   the build fails if they diverge. A silent mismatch here shows up as a WER regression that
+   people then go looking for in the model.
+4. **ONNX export**, validated against torch on the golden set (CER threshold 0.5 %).
+5. **TensorRT engine:** a single `.plan` with one optimization profile per duration bucket.
+6. **Runtime image:** slim, with no torch and no `gigaam` package.
 
-2. **Builder-образ** — torch, gigaam, ONNX-инструменты. Наружу не уезжает.
-
-3. **Гейт log-mel.** Runtime не содержит torch, поэтому фронтенд пересчитывается
-   на numpy по фильтрбанку, экспортированному из torchaudio. Гейт сверяет
-   реализацию с torchaudio против float64-референса. Если разойдётся — сборка
-   падает: молчаливое расхождение здесь даёт просадку WER, которую потом ищут
-   в модели.
-
-4. **Экспорт ONNX** + валидация против torch на golden-наборе (порог CER 0.5 %).
-
-5. **TensorRT-движок** — один `.plan` с оптимизационным профилем на бакет.
-
-6. **Runtime-образ** — тонкий: без torch, без пакета `gigaam`.
-
-Артефакты раскладываются по точности: `artifacts/fp16/`, `artifacts/fp32/`.
-Движки и отчёты — в `cache/`.
+Artifacts go to `artifacts/<precision>/`. Engines and reports go to `cache/`.
 
 ---
 
-## 4. Проверка
+## 4. Verification and benchmarks
 
 ```bash
-# юнит-проверки бэкендов: collapse, токенизатор, log-mel
+# Backend unit checks: CTC collapse, tokenizer, log-mel
 docker run --rm -v "$PWD/artifacts/fp16:/work/onnx" gigaam-triton-builder:0.1 \
   python3 scripts/test_backends.py --onnx-root /work/onnx --variant v3_e2e_ctc
 
-# сквозной smoke против живого сервера
+# End-to-end smoke test against a running server
 docker exec gigaam-triton python3 /opt/gigaam/scripts/smoke_test.py \
   --url localhost:18001 --repo /models --golden-dir /testdata/golden
 
-# матрица латентности и пропускной способности
+# Latency / throughput matrix
 docker exec gigaam-triton python3 /opt/gigaam/scripts/perf_profile.py \
   --url localhost:18001 --repo /models --out /cache/perf/report.json
 
-# сводная таблица по всем накопленным отчётам
+# Summary table across all collected reports
 python3 scripts/perf_summary.py
 ```
 
-Переменные, которые стоит подбирать под нагрузку, а не оставлять по умолчанию:
-`INSTANCES` (второй инстанс окупается только за 32 одновременными запросами),
-`MAX_QUEUE_DELAY_US` (1000 мкс при одиночном потоке — чистая задержка, платится
-на каждом шаге ансамбля), `WARMUP_COUNT` (на CPU прогрев стоит минуты).
+The smoke test covers three things a green build does not guarantee:
 
-Smoke делает три вещи, которых зелёная сборка не гарантирует: прогревает
-ensemble (Triton сам этого не умеет), сверяет транскрипт с torch-эталоном, и
-проверяет, что **плохой вход падает громко** — на int16-масштабе, NaN и битой
-длине. Последнее важно: сама модель на int16 молча возвращает пустую строку.
+- it warms up the ensemble (Triton cannot do that by itself);
+- it compares the transcript with the torch reference;
+- it checks that **bad input fails loudly**: int16-scaled samples, NaN and a broken length.
+
+Tune these runtime variables to your load instead of keeping the defaults:
+
+| Variable | Default | Notes |
+|---|---|---|
+| `INSTANCES` | `2` | A second encoder instance paid off only at ~32 concurrent requests in our measurements. |
+| `MAX_QUEUE_DELAY_US` | `1000` | With a single client stream this is pure added latency, paid at every ensemble step. |
+| `WARMUP_COUNT` | `3` | Warm-up on CPU can take minutes. |
 
 ---
 
-## 5. CPU-профиль
+## 5. CPU profile
 
 ```bash
 ./build.sh --variant v3_e2e_ctc --runtime onnx-cpu --precision int8
 ```
 
-Квантизация динамическая, без калибровочного набора; скрипт сам определяет
-возможности CPU и печатает качество до и после — скорость без этого числа здесь
-ничего не значит.
+Quantization is dynamic, so no calibration set is needed. The script detects CPU capabilities
+and prints quality before and after quantization, because a speed figure means nothing without
+the quality figure next to it.
 
-Две вещи стоит знать заранее. На процессоре **без VNNI** int8 не даёт скорости
-вообще (выигрыш только в размере графа, 886 → 321 МБ), а `reduce_range`
-подбирается по флагам CPU — на не-VNNI без него аккумулятор насыщается и
-качество падает. И прогрев на CPU стоит `инстансы × бакеты × count`: шесть
-инстансов могут греться минутами, для CPU-деплоя уменьшайте `WARMUP_COUNT`.
+Two caveats:
+
+- **Without VNNI, int8 gives no speedup.** The only gain is graph size (886 → 321 MB).
+  `reduce_range` is chosen from the CPU flags; on a non-VNNI CPU, turning it off saturates the
+  accumulator and hurts quality.
+- **Warm-up cost is `instances × buckets × count`.** Six instances can take minutes to warm up;
+  lower `WARMUP_COUNT` for CPU deployments.
 
 ---
 
@@ -171,26 +202,30 @@ ensemble (Triton сам этого не умеет), сверяет транск
 docker run -d --gpus all ... -e VARIANT=v3_e2e_rnnt -e RNNT_PROVIDER=cpu ...
 ```
 
-Цикл транспьюсера — известное узкое место, здесь он занимает 64–80 % времени
-запроса. Реализация держит все буферы преаллоцированными, состояние LSTM не
-ходит через хост, а вход джойнта берётся смещением указателя без копий на кадр.
-`RNNT_PROVIDER=cpu` — дефолт по результату замера: на CPU цикл в 1.5 раза
-быстрее, чем на CUDA, потому что запуск ядра и синхронизация дороже самой
-арифметики на матрицах такого размера.
+The transducer loop is the known bottleneck; here it accounts for 64–80 % of request time. The
+implementation keeps all buffers preallocated, and LSTM state never goes through the host. The
+joint input is taken by pointer offset, with no per-frame copies.
+
+`RNNT_PROVIDER=cpu` is the default because it measured faster: the loop runs 1.5× faster on
+CPU than on CUDA. At these matrix sizes, kernel launch and synchronization cost more than the
+arithmetic itself.
+
+On a GPU, the CTC variant is faster at every point we measured. Use RNNT only if its accuracy
+matters more than the latency.
 
 ---
 
-## 7. Eval-модуль
+## 7. Evaluation
 
-Единственная часть, которой нужны зависимости на хосте:
+This is the only part that needs Python packages on the host:
 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
-pip install numpy scipy soundfile tritonclient[grpc] num2words
-pip install git+https://github.com/voicekit-team/T-one.git   # если сравниваете с T-one
+pip install numpy scipy soundfile 'tritonclient[grpc]' num2words
+pip install git+https://github.com/voicekit-team/T-one.git   # only to compare against T-one
 ```
 
-Запуск:
+Run:
 
 ```bash
 docker cp gigaam-triton:/models/manifest.json /tmp/manifest.json
@@ -198,71 +233,75 @@ python eval/run_eval.py --audio-dir eval/audio \
   --gigaam-manifest /tmp/manifest.json --skip-tone
 ```
 
-Аудио кладётся в `eval/audio/` парами `имя.wav` + `имя.txt` (эталон).
+Put audio into `eval/audio/` as pairs: `name.wav` plus a reference transcript `name.txt`. Audio
+files are not part of the repository.
 
-Про сравнение с другой ASR — два предупреждения, оба из практики. Во-первых,
-**прогоняйте конкурента его собственным клиентом**, а не своей реализацией его
-декодера: иначе вы измеряете свою реконструкцию. Во-вторых, **эталон не должен
-быть порождён ни одной из сравниваемых систем** — на первом же прогоне здесь
-четверть эталонов оказалась дословным выводом конкурента, и он получал на них
-нулевую ошибку по построению.
+When comparing against another ASR system:
 
-`eval/normalize.py` приводит обе стороны к одной форме (lowercase, ё→е, без
-пунктуации, числа словами) и содержит самотесты: `python eval/normalize.py`.
+- **Run the competitor through its own official client**, not your re-implementation of its
+  decoder. Otherwise you measure your reconstruction rather than the system.
+- **References must not be produced by any of the systems being compared.** A reference copied
+  from one system's output gives that system zero error on it by construction.
+
+`eval/normalize.py` brings both sides to the same spoken form: lowercase, `ё` → `е`, no
+punctuation, numbers spelled out as words. It has built-in self-tests: `python eval/normalize.py`.
 
 ---
 
-## 8. Структура
+## 8. Repository layout
 
 ```
-build.sh                  единая точка входа
+build.sh                  single entry point
 docker/
-  Dockerfile.builder      torch + gigaam + TRT; тяжёлый, не отгружается
-  Dockerfile.runtime      тонкий: без torch, без gigaam
-  entrypoint.sh           проверка движка -> генерация репозитория -> tritonserver
+  Dockerfile.builder      torch + gigaam + TensorRT; heavy, never shipped
+  Dockerfile.runtime      slim: no torch, no gigaam
+  entrypoint.sh           engine check -> model repository generation -> tritonserver
 scripts/
-  detect_env.py           проба GPU, выбор базового образа -> cache/env.json
-  export_onnx.py          PyTorch -> ONNX, meta.json, фильтрбанк, golden-проверка
-  check_logmel.py         гейт: numpy-логмел обязан совпасть с torchaudio
-  quantize_onnx.py        динамический int8 + качество до/после
-  buckets.py              таблица бакетов; общая, чтобы формы не разъехались
-  build_trt.py            ONNX -> TensorRT, профиль на бакет, ключ кэша
-  gen_model_repo.py       генерация model repository
-  smoke_test.py           сквозной тест + негативные проверки
-  perf_profile.py         матрица латентности
-  perf_summary.py         сводная таблица из отчётов
-  test_backends.py        юнит-проверки бэкендов
-backends/                 Python-бэкенды Triton (без torch)
-templates/config/         шаблоны config.pbtxt
-eval/                     нормализация, движки, прогон сравнения
-artifacts/<dtype>/        результат экспорта (в .gitignore)
-cache/                    env.json, движки, timing cache, отчёты (в .gitignore)
+  detect_env.py           GPU probe, base image selection -> cache/env.json
+  export_onnx.py          PyTorch -> ONNX, meta.json, filterbank, golden check
+  check_logmel.py         gate: numpy log-mel must match torchaudio
+  quantize_onnx.py        dynamic int8 + quality before/after
+  buckets.py              shared bucket table, so shapes never drift apart
+  build_trt.py            ONNX -> TensorRT, one profile per bucket, cache key
+  gen_model_repo.py       model repository generation
+  smoke_test.py           end-to-end test + negative checks
+  perf_profile.py         latency matrix
+  perf_summary.py         summary table from reports
+  test_backends.py        backend unit checks
+backends/                 Triton Python backends (no torch)
+templates/config/         config.pbtxt templates
+eval/                     normalization, engine wrappers, comparison runner
+testdata/golden/          reference transcripts for the smoke test
+artifacts/<precision>/    export output (git-ignored)
+cache/                    env.json, engines, timing cache, perf reports (engines are git-ignored)
 ```
 
 ---
 
-## 9. Что стоит знать заранее
+## 9. Things to know up front
 
-**Не начинайте с апстримового `triton_scripts/`.** Его конвертер заменяет
-логпробы CTC на `argmax`, то есть выбрасывает ровно тот выход, который нужен
-клиенту для собственного декодирования. Здесь отдаётся и то, и другое: логпробы
-клиенту, а argmax считается на GPU, чтобы Python-бэкенд оставался дешёвым.
+**Don't start from upstream's `triton_scripts/`.** Its converter replaces the CTC log-probs with
+`argmax`, which throws away exactly the output a client needs for its own decoding. This project
+returns both: log-probs for the client, and an argmax computed on the GPU so the Python backend
+stays cheap.
 
-**Препроцессинг v3 не на дефолтах библиотеки** — `n_fft=320`, `center=False`
-против 400 с центрированием у v2. Все счётчики кадров выводятся из `meta.json`,
-а не предполагаются. Смешивать v2 и v3 в одном репозитории запрещено проверкой.
+**v3 preprocessing is not on the library defaults.** v3 uses `n_fft=320` with `center=False`;
+v2 uses 400 with centering. All frame counts are derived from `meta.json`, never assumed. A
+check forbids mixing v2 and v3 in one model repository.
 
-**Голова CTC на один класс шире токенизатора**: 256 токенов, 257 классов, blank
-на индексе 256. `vocab_size` и `num_classes` — разные поля не случайно.
+**The CTC head is one class wider than the tokenizer:** 256 tokens, 257 classes, with blank at
+index 256. `vocab_size` and `num_classes` are separate fields for a reason.
 
-**`ffmpeg` — необъявленная зависимость `gigaam`**, в образе Triton его нет; оба
-Dockerfile его ставят.
+**`ffmpeg` is an undeclared dependency of `gigaam`.** The Triton image doesn't include it, so both
+Dockerfiles install it.
 
-**Движки привязаны к машине.** GPU, драйвер, версия TRT и флаги сборки входят в
-ключ кэша, поэтому обновление драйвера делает `.plan` нерабочим. Это ловится
-автоматически, но время на пересборку в деплое заложить нужно.
+**Engines are tied to the machine.** The GPU, driver, TensorRT version and build flags are all
+part of the cache key, so a driver update invalidates the `.plan`. This is detected
+automatically, but deployments need to budget time for the rebuild.
 
-**Дефолты, поставленные по замеру** (менять только с новым замером): пулы потоков
-numpy прибиты к одному потоку — на маленьких массивах пул дороже работы, это
-дало трёхкратное ускорение препроцессинга; CUDA-графы выключены — выигрыша не
-найдено, а захват на части инстансов падает; цикл RNNT крутится на CPU.
+**Defaults set by measurement** (change them only with a new measurement):
+
+- numpy thread pools are pinned to one thread. On small arrays the pool costs more than the
+  work, and pinning made preprocessing 3× faster.
+- CUDA graphs are off. They gave no measurable gain, and capture fails on some instances.
+- The RNNT loop runs on CPU (see [§6](#6-rnnt)).
