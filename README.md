@@ -295,6 +295,22 @@ index 256. `vocab_size` and `num_classes` are separate fields for a reason.
 **`ffmpeg` is an undeclared dependency of `gigaam`.** The Triton image doesn't include it, so both
 Dockerfiles install it.
 
+**Don't expose Triton older than 26.07 to an untrusted network.** The service has no
+authentication and uses the Python backend. Triton up to 25.06 has an unauthenticated RCE chain
+in that backend (CVE-2025-23319/23320/23334), up to 26.05 CVE-2026-47627 (CVSS 9.8), and the
+September 2026 bulletin was fixed in 26.07. `detect_env.py` therefore tries `tritonserver:26.08`
+first; 25.06 is only a fallback for hosts that already have it. Note that ports published with
+`docker run -p` bypass ufw.
+
+**TensorRT 11 (Triton 26.06+) is strongly typed.** `trtexec` no longer accepts `--fp16`/`--bf16`:
+the engine runs in the ONNX tensor types. `build_trt.py` then passes no precision flag and fails
+unless `--precision` equals the export dtype, so an engine never silently comes out in another
+precision. `bf16` is not available there (the export is fp16 or fp32).
+
+**Short golden clips are cut, not stored.** Audio is git-ignored; `<stem>_<N>s` references mean
+the first N seconds of `<stem>.wav`, and `smoke_test.py` cuts them when missing. Without that a
+small-bucket deployment (e.g. `BUCKETS=3`) has nothing to transcribe in the smoke test.
+
 **Engines are tied to the machine.** The GPU, driver, TensorRT version and build flags are all
 part of the cache key, so a driver update invalidates the `.plan`. This is detected
 automatically, but deployments need to budget time for the rebuild.

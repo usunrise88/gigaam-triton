@@ -19,9 +19,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Уже установленные факты (не перепроверять с нуля)
 
-- **Базовый образ: `nvcr.io/nvidia/tritonserver:25.06-py3`** — TRT 10.11, CUDA 12.9,
+- **Базовый образ на staging: `nvcr.io/nvidia/tritonserver:25.06-py3`** — TRT 10.11, CUDA 12.9,
   Triton 2.59.0, py3.12, `trtexec` в `/usr/src/tensorrt/bin/`. Проба сборки fp16
   под SM120 пройдена. На нём же работают прод-T-one и его официальная инструкция.
+- **Прод (RTX PRO 6000 Blackwell 96 GB, драйвер 595.91.07): `tritonserver:26.08-py3`** —
+  TRT 11.2.1, CUDA 13.4 (контейнер в режиме CUDA forward compatibility), Triton 2.72.0.
+  Причина — безопасность: сервис опубликован без авторизации, а Triton < 26.07 имеет
+  сетевые CVE без авторизации (см. README §9). TRT 11 строго типизирован: `--fp16` нет,
+  точность движка = dtype ONNX (`build_trt.py` это проверяет).
+- **Эталоны `<имя>_<N>s`** — ровно первые N секунд `<имя>.wav`, нарезаются в `smoke_test.py`;
+  тексты `example_3s`/`example_5s` пересняты torch-моделью на таких клипах.
 - Машина — **staging**: RTX PRO 5000 Blackwell 48 GB, SM120, драйвер 580.119.02.
   GPU делится с `vllm-qwen35-moe` (27 GB VRAM). Замеры идут **без остановки vLLM**
   по решению владельца — значит, трактовать их как нижнюю границу и помечать
