@@ -34,7 +34,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Freshest first. Anything not present locally is skipped unless --pull is given,
 # because a Triton image is ~30 GB and this script should not silently fill a disk.
+#
+# 26.08 (TensorRT 11.2) first: Triton before 26.07 carries unauthenticated network CVEs
+# (the 2025 Python-backend RCE chain CVE-2025-23319/23320/23334 up to 25.06,
+# CVE-2026-47627 up to 26.05, the September 2026 bulletin fixed in 26.07). 25.06 stays
+# as a fallback for hosts that already have it, but must not face an untrusted network.
 DEFAULT_CANDIDATES = [
+    "nvcr.io/nvidia/tritonserver:26.08-py3",
     "nvcr.io/nvidia/tritonserver:25.06-py3",
 ]
 
@@ -78,6 +84,13 @@ fi
 
 "$TRTEXEC" --onnx=/w/probe.onnx --saveEngine=/tmp/probe.plan __FLAGS__ >/tmp/trtexec.log 2>&1
 BUILD_RC=$?
+# TensorRT >= 11 has no weakly typed mode: --fp16 is an unknown option and the engine
+# takes the ONNX types. Retry without the precision flag; the probe still has to build
+# real kernels for this GPU (the fallback markers below are checked the same way).
+if [ "$BUILD_RC" -ne 0 ] && grep -q "Unknown option: --fp16" /tmp/trtexec.log; then
+  "$TRTEXEC" --onnx=/w/probe.onnx --saveEngine=/tmp/probe.plan $(echo __FLAGS__ | sed 's/--fp16//') >/tmp/trtexec.log 2>&1
+  BUILD_RC=$?
+fi
 
 echo "###TRTEXECLOG###"
 cat /tmp/trtexec.log
