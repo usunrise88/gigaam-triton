@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -117,6 +120,39 @@ def _check_logprobs(manifest, wav, logprobs, n_frames, tokens, failures) -> None
         )
 
 
+CLIP_NAME = re.compile(r"^(?P<stem>.+)_(?P<secs>\d+(?:\.\d+)?)s$")
+
+
+def derive_clips(golden_dir: Path) -> list[Path]:
+    """Cut the short golden clips that have a committed reference but no audio.
+
+    ``<stem>_<N>s`` is the first N seconds of ``<stem>.wav`` (e.g. example_3s ->
+    "Ничьих не требуя похвал, счастлив уж я на"). Only the references are in git --
+    audio is ignored -- so a fresh build has the 11 s example.wav and nothing that
+    fits a small-bucket deployment, and the golden check would skip everything.
+    Clips go next to the references when the directory is writable, otherwise to a
+    temporary directory; the references are always read from ``golden_dir``.
+    """
+    import soundfile as sf
+
+    out_dir = golden_dir if os.access(golden_dir, os.W_OK) else None
+    made: list[Path] = []
+    names = {p.name.split(".", 1)[0] for p in golden_dir.glob("*.txt")}
+    for name in sorted(names):
+        m = CLIP_NAME.match(name)
+        src = golden_dir / f"{m['stem']}.wav" if m else None
+        if not m or (golden_dir / f"{name}.wav").exists() or not src.exists():
+            continue
+        clip = read_audio(src)[: int(float(m["secs"]) * SAMPLE_RATE)]
+        if out_dir is None:  # read-only mount (e.g. -v ...:/testdata:ro)
+            out_dir = Path(tempfile.mkdtemp(prefix="golden-"))
+        dest = out_dir / f"{name}.wav"
+        sf.write(str(dest), clip, SAMPLE_RATE, subtype="FLOAT")
+        print(f"  derived {dest.name} from {src.name} (first {m['secs']} s)")
+        made.append(dest)
+    return made
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default="localhost:18001")
@@ -165,7 +201,7 @@ def main() -> int:
     print()
 
     # ---- 1/3: golden transcription -------------------------------------
-    wavs = sorted(golden_dir.glob("*.wav"))
+    wavs = sorted(set(golden_dir.glob("*.wav")) | set(derive_clips(golden_dir)), key=lambda p: p.name)
     if not wavs:
         failures.append(f"no golden audio in {golden_dir}")
     checked = 0
@@ -213,9 +249,9 @@ def main() -> int:
         # References are per variant. The heads genuinely disagree -- CTC and
         # RNNT punctuate the same audio differently -- so checking one against
         # the other's reference measures nothing and fails for the wrong reason.
-        expected_path = wav.with_suffix(f".{manifest['variant']}.txt")
+        expected_path = golden_dir / f"{wav.stem}.{manifest['variant']}.txt"
         if not expected_path.exists():
-            expected_path = wav.with_suffix(".txt")
+            expected_path = golden_dir / f"{wav.stem}.txt"
         if expected_path.exists():
             expected = expected_path.read_text(encoding="utf-8").strip()
             score = cer(expected, text.strip())
