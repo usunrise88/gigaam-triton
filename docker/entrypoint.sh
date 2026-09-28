@@ -135,7 +135,9 @@ python3 "${ROOT}/scripts/gen_model_repo.py" \
 log "starting tritonserver"
 # --exit-on-error: a model that fails to load must stop the container rather than
 # leave a server up that answers some buckets and 404s the rest.
-exec tritonserver \
+# PROC_NAME sets argv[0], which is what nvidia-smi shows: on a GPU shared with other
+# servers a bare "tritonserver" does not say which service holds the memory.
+exec -a "${PROC_NAME:-tritonserver}" tritonserver \
     --model-repository="${REPO}" \
     --http-port=18000 \
     --grpc-port=18001 \
