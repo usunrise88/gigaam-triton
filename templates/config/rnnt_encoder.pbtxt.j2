@@ -1,0 +1,90 @@
+name: "{{ name }}"
+platform: "{{ platform }}"
+max_batch_size: {{ max_batch_size }}
+
+# Tensor names differ from the CTC graph -- audio_signal/length rather than
+# features/feature_lengths -- which is why the templates take them as parameters
+# instead of hardcoding either set.
+input [
+  {
+    name: "audio_signal"
+    data_type: {{ feature_dtype }}
+    dims: [ {{ n_mels }}, -1 ]
+  },
+  {
+    name: "length"
+    data_type: TYPE_INT64
+    dims: [ 1 ]
+    reshape { shape: [ ] }
+  }
+]
+
+# encoded is [batch, enc_hidden, frames]. The upstream export labels its dim 1
+# "seq_len", which is simply wrong -- dim 1 is the feature axis and dim 2 is
+# time, as the joint's [batch, enc_hidden, 1] input confirms.
+output [
+  {
+    name: "encoded"
+    data_type: {{ feature_dtype }}
+    # [-1, -1] rather than [enc_hidden, -1]: the upstream export marks every axis
+    # of `encoded` dynamic, and Triton requires the config to match the graph
+    # exactly. The real layout is [batch, enc_hidden, frames] -- see the joint.
+    dims: [ -1, -1 ]
+  },
+  {
+    name: "encoded_len"
+    data_type: TYPE_INT32
+    dims: [ 1 ]
+    reshape { shape: [ ] }
+  }
+]
+
+dynamic_batching {
+  preferred_batch_size: [ {{ preferred_batch_size | join(', ') }} ]
+  max_queue_delay_microseconds: {{ max_queue_delay_us }}
+  priority_levels: 2
+  default_priority_level: 1
+}
+
+instance_group [
+  {
+    count: {{ instances }}
+    kind: {{ instance_kind }}
+{%- if profile_index is not none %}
+    profile: [ "{{ profile_index }}" ]
+{%- endif %}
+  }
+]
+{% if cuda_graphs %}
+optimization {
+  cuda { graphs: true }
+}
+{%- endif %}
+
+response_cache { enable: false }
+
+model_warmup [
+{%- for w in warmups %}
+  {
+    name: "{{ w.name }}"
+    batch_size: {{ w.batch_size }}
+    count: {{ warmup_count }}
+    inputs {
+      key: "audio_signal"
+      value {
+        data_type: {{ feature_dtype }}
+        dims: [ {{ n_mels }}, {{ w.frames }} ]
+        zero_data: true
+      }
+    }
+    inputs {
+      key: "length"
+      value {
+        data_type: TYPE_INT64
+        dims: [ 1 ]
+        input_data_file: "{{ w.length_file }}"
+      }
+    }
+  }{{ "," if not loop.last }}
+{%- endfor %}
+]

@@ -1,0 +1,299 @@
+{
+  "variant": "v3_e2e_ctc",
+  "runtime": "trt",
+  "export_dtype": "fp16",
+  "max_batch_size": 8,
+  "requested_outputs": [
+    "text"
+  ],
+  "gpu_before": {
+    "gpu_name": "NVIDIA RTX PRO 5000 Blackwell",
+    "utilization_pct": 0,
+    "memory_used_mib": 28673,
+    "memory_total_mib": 48935,
+    "compute_apps": [
+      {
+        "pid": "1",
+        "process": "tritonserver",
+        "memory_mib": "944"
+      }
+    ]
+  },
+  "gpu_after": {
+    "gpu_name": "NVIDIA RTX PRO 5000 Blackwell",
+    "utilization_pct": 62,
+    "memory_used_mib": 28673,
+    "memory_total_mib": 48935,
+    "compute_apps": [
+      {
+        "pid": "1",
+        "process": "tritonserver",
+        "memory_mib": "944"
+      }
+    ]
+  },
+  "gpu_shared_with": [],
+  "caveat": "Measured on the staging RTX PRO 5000 while a vLLM server held part of the card. Thresholds in spec §9.2 were written for the dedicated production RTX PRO 6000; read these as a lower bound.",
+  "cold_vs_warm": {
+    "channel_setup_ms": 86.19,
+    "note": "channel_setup_ms is the first inference on a fresh gRPC channel and includes connection setup; the per-bucket rows exclude it.",
+    "buckets": [
+      {
+        "model": "gigaam_v3_e2e_ctc_5s",
+        "first_request_ms": 84.236,
+        "warm_median_ms": 24.881,
+        "ratio": 3.39
+      }
+    ]
+  },
+  "matrix": [
+    {
+      "requests": 342,
+      "errors": 0,
+      "error_samples": [],
+      "wall_s": 8.001,
+      "throughput_rps": 42.74,
+      "rtfx": 21.4,
+      "gpu_under_load": {
+        "gpu_name": "NVIDIA RTX PRO 5000 Blackwell",
+        "utilization_pct": 10,
+        "memory_used_mib": 28673,
+        "memory_total_mib": 48935,
+        "compute_apps": [
+          {
+            "pid": "1",
+            "process": "tritonserver",
+            "memory_mib": "944"
+          }
+        ]
+      },
+      "p50_ms": 23.463,
+      "p95_ms": 26.215,
+      "p99_ms": 27.993,
+      "min_ms": 17.393,
+      "max_ms": 30.179,
+      "mean_ms": 23.388,
+      "duration_s": 0.5,
+      "concurrency": 1,
+      "model": "gigaam_v3_e2e_ctc_5s",
+      "bucket_s": 5.0
+    },
+    {
+      "requests": 1997,
+      "errors": 0,
+      "error_samples": [],
+      "wall_s": 8.024,
+      "throughput_rps": 248.86,
+      "rtfx": 124.4,
+      "gpu_under_load": {
+        "gpu_name": "NVIDIA RTX PRO 5000 Blackwell",
+        "utilization_pct": 30,
+        "memory_used_mib": 28673,
+        "memory_total_mib": 48935,
+        "compute_apps": [
+          {
+            "pid": "1",
+            "process": "tritonserver",
+            "memory_mib": "944"
+          }
+        ]
+      },
+      "p50_ms": 30.202,
+      "p95_ms": 46.1,
+      "p99_ms": 61.195,
+      "min_ms": 18.289,
+      "max_ms": 128.015,
+      "mean_ms": 32.044,
+      "duration_s": 0.5,
+      "concurrency": 8,
+      "model": "gigaam_v3_e2e_ctc_5s",
+      "bucket_s": 5.0
+    },
+    {
+      "requests": 4986,
+      "errors": 0,
+      "error_samples": [],
+      "wall_s": 8.045,
+      "throughput_rps": 619.75,
+      "rtfx": 309.9,
+      "gpu_under_load": {
+        "gpu_name": "NVIDIA RTX PRO 5000 Blackwell",
+        "utilization_pct": 48,
+        "memory_used_mib": 28673,
+        "memory_total_mib": 48935,
+        "compute_apps": [
+          {
+            "pid": "1",
+            "process": "tritonserver",
+            "memory_mib": "944"
+          }
+        ]
+      },
+      "p50_ms": 48.308,
+      "p95_ms": 78.733,
+      "p99_ms": 92.229,
+      "min_ms": 19.713,
+      "max_ms": 149.286,
+      "mean_ms": 51.098,
+      "duration_s": 0.5,
+      "concurrency": 32,
+      "model": "gigaam_v3_e2e_ctc_5s",
+      "bucket_s": 5.0
+    },
+    {
+      "requests": 7271,
+      "errors": 0,
+      "error_samples": [],
+      "wall_s": 8.058,
+      "throughput_rps": 902.35,
+      "rtfx": 451.2,
+      "gpu_under_load": {
+        "gpu_name": "NVIDIA RTX PRO 5000 Blackwell",
+        "utilization_pct": 55,
+        "memory_used_mib": 28673,
+        "memory_total_mib": 48935,
+        "compute_apps": [
+          {
+            "pid": "1",
+            "process": "tritonserver",
+            "memory_mib": "944"
+          }
+        ]
+      },
+      "p50_ms": 51.023,
+      "p95_ms": 83.434,
+      "p99_ms": 98.155,
+      "min_ms": 23.349,
+      "max_ms": 129.047,
+      "mean_ms": 54.58,
+      "duration_s": 0.5,
+      "concurrency": 50,
+      "model": "gigaam_v3_e2e_ctc_5s",
+      "bucket_s": 5.0
+    },
+    {
+      "requests": 349,
+      "errors": 0,
+      "error_samples": [],
+      "wall_s": 8.006,
+      "throughput_rps": 43.59,
+      "rtfx": 130.8,
+      "gpu_under_load": {
+        "gpu_name": "NVIDIA RTX PRO 5000 Blackwell",
+        "utilization_pct": 11,
+        "memory_used_mib": 28673,
+        "memory_total_mib": 48935,
+        "compute_apps": [
+          {
+            "pid": "1",
+            "process": "tritonserver",
+            "memory_mib": "944"
+          }
+        ]
+      },
+      "p50_ms": 22.807,
+      "p95_ms": 25.898,
+      "p99_ms": 27.747,
+      "min_ms": 17.67,
+      "max_ms": 53.414,
+      "mean_ms": 22.934,
+      "duration_s": 3.0,
+      "concurrency": 1,
+      "model": "gigaam_v3_e2e_ctc_5s",
+      "bucket_s": 5.0
+    },
+    {
+      "requests": 1633,
+      "errors": 0,
+      "error_samples": [],
+      "wall_s": 8.021,
+      "throughput_rps": 203.58,
+      "rtfx": 610.7,
+      "gpu_under_load": {
+        "gpu_name": "NVIDIA RTX PRO 5000 Blackwell",
+        "utilization_pct": 25,
+        "memory_used_mib": 28673,
+        "memory_total_mib": 48935,
+        "compute_apps": [
+          {
+            "pid": "1",
+            "process": "tritonserver",
+            "memory_mib": "944"
+          }
+        ]
+      },
+      "p50_ms": 34.819,
+      "p95_ms": 70.717,
+      "p99_ms": 76.201,
+      "min_ms": 16.983,
+      "max_ms": 79.777,
+      "mean_ms": 39.202,
+      "duration_s": 3.0,
+      "concurrency": 8,
+      "model": "gigaam_v3_e2e_ctc_5s",
+      "bucket_s": 5.0
+    },
+    {
+      "requests": 5093,
+      "errors": 0,
+      "error_samples": [],
+      "wall_s": 8.024,
+      "throughput_rps": 634.73,
+      "rtfx": 1904.2,
+      "gpu_under_load": {
+        "gpu_name": "NVIDIA RTX PRO 5000 Blackwell",
+        "utilization_pct": 48,
+        "memory_used_mib": 28673,
+        "memory_total_mib": 48935,
+        "compute_apps": [
+          {
+            "pid": "1",
+            "process": "tritonserver",
+            "memory_mib": "944"
+          }
+        ]
+      },
+      "p50_ms": 46.956,
+      "p95_ms": 78.944,
+      "p99_ms": 101.614,
+      "min_ms": 19.783,
+      "max_ms": 155.77,
+      "mean_ms": 50.048,
+      "duration_s": 3.0,
+      "concurrency": 32,
+      "model": "gigaam_v3_e2e_ctc_5s",
+      "bucket_s": 5.0
+    },
+    {
+      "requests": 7441,
+      "errors": 0,
+      "error_samples": [],
+      "wall_s": 8.04,
+      "throughput_rps": 925.49,
+      "rtfx": 2776.5,
+      "gpu_under_load": {
+        "gpu_name": "NVIDIA RTX PRO 5000 Blackwell",
+        "utilization_pct": 61,
+        "memory_used_mib": 28673,
+        "memory_total_mib": 48935,
+        "compute_apps": [
+          {
+            "pid": "1",
+            "process": "tritonserver",
+            "memory_mib": "944"
+          }
+        ]
+      },
+      "p50_ms": 49.9,
+      "p95_ms": 81.067,
+      "p99_ms": 93.272,
+      "min_ms": 19.152,
+      "max_ms": 119.161,
+      "mean_ms": 53.278,
+      "duration_s": 3.0,
+      "concurrency": 50,
+      "model": "gigaam_v3_e2e_ctc_5s",
+      "bucket_s": 5.0
+    }
+  ]
+}

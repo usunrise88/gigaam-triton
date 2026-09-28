@@ -1,0 +1,7 @@
+# Engines and rendered repositories are machine-specific and rebuilt on the
+# target (spec §6.3); shipping them would only bloat the build context.
+cache/
+model_repo/
+.git/
+**/__pycache__/
+*.log

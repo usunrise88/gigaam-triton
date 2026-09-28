@@ -1,0 +1,14 @@
+model_repo/
+cache/*
+!cache/env.json
+testdata/golden/*.wav
+testdata/manifest.jsonl
+*.onnx
+*.plan
+*.ckpt
+__pycache__/
+.venv/
+artifacts/
+!cache/perf/
+eval/audio/*.wav
+eval/_deps/

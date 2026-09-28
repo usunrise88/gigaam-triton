@@ -1,0 +1,87 @@
+name: "{{ name }}"
+backend: "python"
+max_batch_size: {{ max_batch_size }}
+
+input [
+  {
+    name: "encoded"
+    data_type: {{ feature_dtype }}
+    # [-1, -1] rather than [enc_hidden, -1]: the upstream export marks every axis
+    # of `encoded` dynamic, and Triton requires the config to match the graph
+    # exactly. The real layout is [batch, enc_hidden, frames] -- see the joint.
+    dims: [ -1, -1 ]
+  },
+  {
+    name: "encoded_lengths"
+    data_type: TYPE_INT32
+    dims: [ 1 ]
+    reshape { shape: [ ] }
+  }
+]
+
+# No logprobs here, unlike the CTC path. A transducer lattice is not something
+# the provider can use, so confidence comes from the mean over token_scores
+# instead (spec §7.2).
+output [
+  {
+    name: "text"
+    data_type: TYPE_STRING
+    dims: [ 1 ]
+  },
+  {
+    name: "tokens"
+    data_type: TYPE_INT32
+    dims: [ -1 ]
+  },
+  {
+    name: "token_scores"
+    data_type: TYPE_FP32
+    dims: [ -1 ]
+  },
+  {
+    name: "tokens_len"
+    data_type: TYPE_INT32
+    dims: [ 1 ]
+  },
+  {
+    name: "decode_steps"
+    data_type: TYPE_INT32
+    dims: [ 1 ]
+  },
+  {
+    name: "loop_ms"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+  },
+  {
+    name: "upload_ms"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+  }
+]
+
+# The transducer loop is sequential per request, so throughput here comes from
+# running several instances rather than from batching inside one.
+instance_group [
+  {
+    count: {{ rnnt_instances }}
+    kind: {{ rnnt_kind }}
+  }
+]
+
+parameters {
+  key: "provider"
+  value: { string_value: "{{ rnnt_provider }}" }
+}
+parameters {
+  # Upstream hardcodes 3 as a module constant. Which value is right depends on
+  # the vocabulary and shows up directly in the loop profile (spec §7.4.3).
+  key: "max_symbols_per_frame"
+  value: { string_value: "{{ max_symbols_per_frame }}" }
+}
+parameters {
+  key: "intra_op_thread_count"
+  value: { string_value: "{{ rnnt_intra_op_threads }}" }
+}
+
+response_cache { enable: false }

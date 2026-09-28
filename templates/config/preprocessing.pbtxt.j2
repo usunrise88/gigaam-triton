@@ -1,0 +1,66 @@
+name: "{{ name }}"
+backend: "python"
+
+# Batched, unlike upstream's max_batch_size: 0. Upstream makes the client pack a
+# ragged audio_batch by hand; spec §7.3 wants Triton's own dynamic batching, and
+# that requires a real batch dimension everywhere in the ensemble.
+max_batch_size: {{ max_batch_size }}
+
+input [
+  {
+    name: "audio"
+    data_type: TYPE_FP32
+    dims: [ -1 ]
+  },
+  {
+    name: "audio_len"
+    data_type: TYPE_INT32
+    dims: [ 1 ]
+  }
+]
+
+output [
+  {
+    name: "features"
+    data_type: {{ feature_dtype }}
+    dims: [ {{ n_mels }}, -1 ]
+  },
+  {
+    name: "feature_lengths"
+    data_type: TYPE_INT64
+    dims: [ 1 ]
+    # The traced graph takes lengths as [B]; the API exposes [B, 1]. reshape is
+    # exactly the seam for that, and avoids re-tracing the encoder just to
+    # change a rank.
+    reshape { shape: [ ] }
+  }
+]
+
+dynamic_batching {
+  preferred_batch_size: [ {{ preferred_batch_size | join(', ') }} ]
+  # 1 ms ceiling on added latency. Not tens of milliseconds "for throughput":
+  # this path is realtime, and the production T-one deployment next door already
+  # shows what 10 ms of queue delay does to a latency comparison (spec §7.3).
+  max_queue_delay_microseconds: {{ max_queue_delay_us }}
+  priority_levels: 2
+  default_priority_level: 1
+}
+
+# CPU-bound numpy work: several single-threaded instances beat one wide one under
+# concurrency, which is the same reasoning as the CPU encoder profile in §7.3.
+instance_group [
+  {
+    count: {{ cpu_instances }}
+    kind: KIND_CPU
+  }
+]
+
+parameters {
+  # Largest bucket in samples. Lets an oversize segment be rejected with a
+  # message that names the problem, instead of a shape error from inside
+  # TensorRT about a tensor the caller never mentioned.
+  key: "largest_bucket_samples"
+  value: { string_value: "{{ largest_bucket_samples }}" }
+}
+
+response_cache { enable: false }

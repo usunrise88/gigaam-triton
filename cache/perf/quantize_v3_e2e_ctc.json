@@ -1,0 +1,22 @@
+{
+  "onnx": "/work/onnx/v3_e2e_ctc/model.onnx",
+  "quantised": "/work/onnx/v3_e2e_ctc/model.int8.onnx",
+  "ops_quantised": "MatMul,Gemm",
+  "per_channel": true,
+  "intra_op_threads": 4,
+  "rows": [
+    {
+      "wav": "example.wav",
+      "cer_fp32": 0.0,
+      "cer_int8": 0.0,
+      "wer_fp32": 0.0,
+      "wer_int8": 0.0,
+      "rtfx_fp32": 18.7,
+      "rtfx_int8": 20.3,
+      "speedup": 1.09,
+      "text_fp32": "Ничьих, не требуя похвал, счастлив уж я надеждой сладкой, Что дева с трепетом любви посмотрит, может быть украдкой На песни грешные мои. У лукоморья дуб зелёный.",
+      "text_int8": "Ничьих, не требуя похвал, счастлив уж я надеждой сладкой, Что дева с трепетом любви посмотрит, может быть украдкой На песни грешные мои. У лукоморья дуб зелёный."
+    }
+  ],
+  "caveat": "Measured on the golden set, which is a handful of files, not the call corpus. Spec §8 asks for WER either side of quantisation; that number needs the real corpus and belongs to the eval step. Treat these as a regression tripwire, not as the WER answer."
+}

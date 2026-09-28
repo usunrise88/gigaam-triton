@@ -1,0 +1,79 @@
+# Serving image. Thin: no torch, no gigaam package.
+#
+# Must share BASE_IMAGE with Dockerfile.builder -- a .plan carries the TRT
+# version it was built with, and a server on a different one refuses to load it.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+# ffmpeg is here for the smoke test's audio reading, not for serving: the
+# inference path takes raw float32 samples over the wire.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Deliberately no torch and no gigaam. Importing gigaam pulls torch in through
+# model.py and decoding.py, which is ~2.5 GB for a mel filterbank and thirty
+# lines of vocabulary lookup. The Python backends run on numpy over arrays the
+# builder exported instead (spec §4.2).
+#   onnxruntime-gpu: for the RNNT decoder/joint loop (spec §7.4)
+#   jinja2:          the model repository is rendered at start-up, because
+#                    engines are keyed to this machine and cannot be baked in
+RUN pip install --no-cache-dir \
+    "numpy>=2,<3" \
+    "onnxruntime-gpu==1.23.*" \
+    scipy \
+    sentencepiece \
+    jinja2 \
+    soundfile \
+    "tritonclient[grpc]"
+
+# Exported artefacts: ONNX graphs, filterbank, tokenizer, meta.json.
+# The engine is NOT here -- see entrypoint.sh.
+ARG ARTIFACTS=artifacts/onnx
+COPY ${ARTIFACTS}/ /opt/gigaam/onnx/
+
+COPY backends/   /opt/gigaam/backends/
+COPY templates/  /opt/gigaam/templates/
+COPY scripts/buckets.py        /opt/gigaam/scripts/
+COPY scripts/build_trt.py      /opt/gigaam/scripts/
+COPY scripts/gen_model_repo.py /opt/gigaam/scripts/
+COPY scripts/smoke_test.py     /opt/gigaam/scripts/
+COPY scripts/perf_profile.py   /opt/gigaam/scripts/
+COPY docker/entrypoint.sh      /opt/gigaam/entrypoint.sh
+
+RUN chmod +x /opt/gigaam/entrypoint.sh
+
+# Pin the numeric thread pools to one thread each. This is worth 3x on the
+# critical path and was measured, not assumed: with the defaults (24 threads on
+# this box) the preprocessing backend spent 28.6 ms per request against 3.9 ms of
+# actual numpy work, and p99 sat at 106 ms. Pinned, it is 8.5 ms and end-to-end
+# p50 drops from 31.8 ms to 24.8 ms with p99 at 27.6 ms.
+#
+# The arrays are small -- a 5 s bucket is 499x320 -- so spinning up a thread pool
+# per call costs more than the arithmetic, and several backend instances doing it
+# at once thrash each other. Parallelism here belongs at the Triton instance
+# level (instance_group count), not inside numpy.
+ENV OMP_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    NUMEXPR_NUM_THREADS=1 \
+    PYTHONUNBUFFERED=1 \
+    GIGAAM_ROOT=/opt/gigaam \
+    VARIANT=v3_e2e_ctc \
+    RUNTIME=trt \
+    PRECISION=fp16 \
+    BUCKETS=2,5,10,20 \
+    MAX_BATCH_SIZE=8 \
+    INSTANCES=2 \
+    CUDA_GRAPHS=auto \
+    RNNT_PROVIDER=cpu \
+    RNNT_INSTANCES=8 \
+    MAX_SYMBOLS_PER_FRAME=3 \
+    WARMUP_COUNT=3 \
+    CACHE_DIR=/cache \
+    MODEL_REPO=/models
+
+# 17000-17002 belong to the production T-one deployment on this host.
+EXPOSE 18000 18001 18002
+
+ENTRYPOINT ["/opt/gigaam/entrypoint.sh"]

@@ -1,0 +1,93 @@
+name: "{{ name }}"
+platform: "ensemble"
+max_batch_size: {{ max_batch_size }}
+
+# The contract from spec §7.2. Identical for every variant and every runtime, so
+# the provider never has to know whether TensorRT or ONNX Runtime is behind it,
+# or whether the model is cased and punctuated.
+#
+# One ensemble per duration bucket ({{ bucket_s }} s here). The provider already
+# pads to the nearest bucket (§6.1); it picks the matching name. That padding is
+# also what lets Triton batch at all -- it only groups requests of identical shape.
+input [
+  {
+    name: "audio"
+    data_type: TYPE_FP32
+    dims: [ -1 ]
+  },
+  {
+    name: "audio_len"
+    data_type: TYPE_INT32
+    dims: [ 1 ]
+  }
+]
+
+output [
+  {
+    name: "text"
+    data_type: TYPE_STRING
+    dims: [ 1 ]
+  },
+  {
+    name: "logprobs"
+    data_type: TYPE_FP32
+    dims: [ -1, {{ num_classes }} ]
+  },
+  {
+    name: "logprobs_len"
+    data_type: TYPE_INT32
+    dims: [ 1 ]
+  },
+  {
+    name: "tokens"
+    data_type: TYPE_INT32
+    dims: [ -1 ]
+  },
+  {
+    name: "token_scores"
+    data_type: TYPE_FP32
+    dims: [ -1 ]
+  },
+  {
+    name: "tokens_len"
+    data_type: TYPE_INT32
+    dims: [ 1 ]
+  }
+]
+
+ensemble_scheduling {
+  step [
+    {
+      model_name: "{{ preprocessing_model }}"
+      model_version: -1
+      input_map { key: "audio"     value: "audio" }
+      input_map { key: "audio_len" value: "audio_len" }
+      output_map { key: "features"        value: "features" }
+      output_map { key: "feature_lengths" value: "feature_lengths" }
+    },
+    {
+      model_name: "{{ encoder_model }}"
+      model_version: -1
+      input_map { key: "features"        value: "features" }
+      input_map { key: "feature_lengths" value: "feature_lengths" }
+      # log_probs goes straight from the graph to the ensemble output: it never
+      # passes through a Python backend.
+      output_map { key: "log_probs"       value: "logprobs" }
+      output_map { key: "token_ids"       value: "token_ids" }
+      output_map { key: "token_logprobs"  value: "token_logprobs" }
+      output_map { key: "encoded_lengths" value: "encoded_lengths" }
+    },
+    {
+      model_name: "{{ postprocessing_model }}"
+      model_version: -1
+      input_map { key: "token_ids"       value: "token_ids" }
+      input_map { key: "token_logprobs"  value: "token_logprobs" }
+      input_map { key: "encoded_lengths" value: "encoded_lengths" }
+      output_map { key: "text"         value: "text" }
+      output_map { key: "tokens"       value: "tokens" }
+      output_map { key: "token_scores" value: "token_scores" }
+      output_map { key: "tokens_len"   value: "tokens_len" }
+      output_map { key: "logprobs_len" value: "logprobs_len" }
+    }
+  ]
+}

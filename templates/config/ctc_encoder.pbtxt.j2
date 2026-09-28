@@ -1,0 +1,125 @@
+name: "{{ name }}"
+platform: "{{ platform }}"
+max_batch_size: {{ max_batch_size }}
+
+input [
+  {
+    name: "features"
+    data_type: {{ feature_dtype }}
+    dims: [ {{ n_mels }}, -1 ]
+  },
+  {
+    name: "feature_lengths"
+    data_type: TYPE_INT64
+    dims: [ 1 ]
+    # The traced graph takes lengths as [B]; the API exposes [B, 1]. reshape is
+    # the seam for that, and avoids re-tracing the encoder to change a rank.
+    reshape { shape: [ ] }
+  }
+]
+
+# log_probs is a first-class output, not a by-product. Upstream's converter
+# replaces it with argmax and throws the distribution away; the provider decodes
+# CTC on its own side to get confidence and word-level timings without a second
+# pass (spec §7.2), so it needs the real thing. It is cast to FP32 inside the
+# graph so the ensemble can hand it over without a Python round trip.
+output [
+  {
+    name: "log_probs"
+    data_type: TYPE_FP32
+    dims: [ -1, {{ num_classes }} ]
+  },
+  {
+    name: "token_ids"
+    data_type: TYPE_INT32
+    dims: [ -1 ]
+  },
+  {
+    name: "token_logprobs"
+    data_type: TYPE_FP32
+    dims: [ -1 ]
+  },
+  {
+    name: "encoded_lengths"
+    data_type: TYPE_INT32
+    dims: [ 1 ]
+    reshape { shape: [ ] }
+  }
+]
+
+dynamic_batching {
+  preferred_batch_size: [ {{ preferred_batch_size | join(', ') }} ]
+  # 1 ms ceiling on added latency. Not tens of milliseconds "for throughput":
+  # this path is realtime (spec §7.3).
+  max_queue_delay_microseconds: {{ max_queue_delay_us }}
+  # Level 2 for the provider's speculative / partial requests, level 1 (default)
+  # for final ones. A final request must never queue behind a partial.
+  priority_levels: 2
+  default_priority_level: 1
+}
+
+instance_group [
+  {
+    count: {{ instances }}
+    kind: {{ instance_kind }}
+{%- if profile_index is not none %}
+    # One optimization profile per duration bucket. Triton does not choose a
+    # profile from the request shape -- it is bound to the instance -- which is
+    # why each bucket is its own model rather than one model with four profiles.
+    profile: [ "{{ profile_index }}" ]
+{%- endif %}
+  }
+]
+{% if intra_op_threads %}
+# N x intra_op should land near the physical core count. Measure both extremes
+# (many single-threaded instances vs one wide one): for Conformer under
+# concurrent load the former usually wins (spec §7.3).
+parameters {
+  key: "intra_op_thread_count"
+  value: { string_value: "{{ intra_op_threads }}" }
+}
+parameters {
+  key: "inter_op_thread_count"
+  value: { string_value: "{{ inter_op_threads }}" }
+}
+{%- endif %}
+{% if cuda_graphs %}
+# Shapes are fixed within a bucket, which is what makes graph capture possible at
+# all. Verify capture actually happens per bucket rather than assuming it.
+optimization {
+  cuda { graphs: true }
+}
+{%- endif %}
+
+response_cache { enable: false }
+
+# Mandatory, not optional: the first few ONNX Runtime calls run 3-5x slower than
+# a warm one, and CUDA graphs must be captured before the first real request
+# rather than during it (spec §7.3).
+model_warmup [
+{%- for w in warmups %}
+  {
+    name: "{{ w.name }}"
+    batch_size: {{ w.batch_size }}
+    count: {{ warmup_count }}
+    inputs {
+      key: "features"
+      value {
+        data_type: {{ feature_dtype }}
+        dims: [ {{ n_mels }}, {{ w.frames }} ]
+        zero_data: true
+      }
+    }
+    inputs {
+      key: "feature_lengths"
+      value {
+        data_type: TYPE_INT64
+        dims: [ 1 ]
+        # A real frame count, not zeros: a zero length makes the encoder produce
+        # an empty sequence and the warmup either crashes or warms nothing.
+        input_data_file: "{{ w.length_file }}"
+      }
+    }
+  }{{ "," if not loop.last }}
+{%- endfor %}
+]

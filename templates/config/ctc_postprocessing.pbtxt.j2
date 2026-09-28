@@ -1,0 +1,69 @@
+name: "{{ name }}"
+backend: "python"
+max_batch_size: {{ max_batch_size }}
+
+# Takes the argmax, not the log-probs. The full [T, V] tensor never enters
+# Python -- see backends/ctc_postprocessing/1/model.py for why that matters to
+# the latency budget.
+input [
+  {
+    name: "token_ids"
+    data_type: TYPE_INT32
+    dims: [ -1 ]
+  },
+  {
+    name: "token_logprobs"
+    data_type: TYPE_FP32
+    dims: [ -1 ]
+  },
+  {
+    name: "encoded_lengths"
+    data_type: TYPE_INT32
+    dims: [ 1 ]
+    reshape { shape: [ ] }
+  }
+]
+
+output [
+  {
+    name: "text"
+    data_type: TYPE_STRING
+    dims: [ 1 ]
+  },
+  {
+    name: "tokens"
+    data_type: TYPE_INT32
+    dims: [ -1 ]
+  },
+  {
+    name: "token_scores"
+    data_type: TYPE_FP32
+    dims: [ -1 ]
+  },
+  {
+    name: "tokens_len"
+    data_type: TYPE_INT32
+    dims: [ 1 ]
+  },
+  {
+    name: "logprobs_len"
+    data_type: TYPE_INT32
+    dims: [ 1 ]
+  }
+]
+
+dynamic_batching {
+  preferred_batch_size: [ {{ preferred_batch_size | join(', ') }} ]
+  max_queue_delay_microseconds: {{ max_queue_delay_us }}
+  priority_levels: 2
+  default_priority_level: 1
+}
+
+instance_group [
+  {
+    count: {{ cpu_instances }}
+    kind: KIND_CPU
+  }
+]
+
+response_cache { enable: false }
